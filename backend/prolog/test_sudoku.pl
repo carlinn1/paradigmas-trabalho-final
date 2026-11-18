@@ -92,3 +92,55 @@ test(unsolvable_board, true(Result == unsolvable)) :-
     hint([[B, A | Rest] | Rows], Result).
 
 :- end_tests(hint).
+
+:- begin_tests(variants).
+
+test(diagonal_solution_has_distinct_diagonals) :-
+    generate(diagonal, easy, P),
+    solve(diagonal, P, S),
+    findall(V, (between(0, 8, I), nth0(I, S, Row), nth0(I, Row, V)), MainDiag),
+    findall(V, (between(0, 8, I), J is 8 - I, nth0(I, S, Row), nth0(J, Row, V)), AntiDiag),
+    sort(MainDiag, [1,2,3,4,5,6,7,8,9]),
+    sort(AntiDiag, [1,2,3,4,5,6,7,8,9]).
+
+test(diagonal_unique_solution, true(N == 1)) :-
+    generate(diagonal, easy, P),
+    count_solutions(diagonal, P, 2, N).
+
+test(diagonal_rejects_diagonal_duplicate, fail) :-
+    length(Rest, 7),
+    maplist(=([0,0,0,0,0,0,0,0,0]), Rest),
+    % (0,0) = 5 e (1,1) = 5: válido em blocos/linhas/colunas diferentes, inválido na diagonal
+    solve(diagonal, [[5,0,0,0,0,0,0,0,0], [0,5,0,0,0,0,0,0,0] | Rest], _).
+
+test(anti_knight_solution_respects_knight_moves) :-
+    generate(anti_knight, easy, P),
+    solve(anti_knight, P, S),
+    \+ ( between(0, 8, R1),
+         between(0, 8, C1),
+         member(DR-DC, [1-2, 1-(-2), 2-1, 2-(-1)]),
+         R2 is R1 + DR, C2 is C1 + DC,
+         between(0, 8, R2), between(0, 8, C2),
+         nth0(R1, S, Row1), nth0(C1, Row1, V),
+         nth0(R2, S, Row2), nth0(C2, Row2, V) ).
+
+test(anti_knight_unique_solution, true(N == 1)) :-
+    generate(anti_knight, easy, P),
+    count_solutions(anti_knight, P, 2, N).
+
+test(anti_knight_rejects_knight_duplicate, fail) :-
+    length(Rest, 7),
+    maplist(=([0,0,0,0,0,0,0,0,0]), Rest),
+    % (0,1) = 5 e (1,3) = 5: blocos, linhas e colunas distintas, mas a um salto de cavalo
+    solve(anti_knight, [[0,5,0,0,0,0,0,0,0], [0,0,0,5,0,0,0,0,0] | Rest], _).
+
+test(hint_for_diagonal_matches_solution, true(Value == Expected)) :-
+    generate(diagonal, easy, P),
+    hint(diagonal, P, [Row, Col, Value]),
+    solve(diagonal, P, S),
+    nth0(Row, S, SRow), nth0(Col, SRow, Expected).
+
+test(bad_variant, error(type_error(_, killer))) :-
+    generate(killer, easy, _).
+
+:- end_tests(variants).
