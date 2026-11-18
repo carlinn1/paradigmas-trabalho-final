@@ -2,15 +2,18 @@ module Sudoku exposing
     ( Board
     , Cell(..)
     , Position
+    , Variant(..)
     , cellAt
     , clearGuesses
     , conflicts
     , empty
     , fromLists
     , isComplete
+    , isDiagonalCell
     , isGiven
     , isGuess
     , isRevealed
+    , peers
     , positions
     , removeMarkFromPeers
     , revealSolution
@@ -39,6 +42,18 @@ import Set exposing (Set)
 
 
 -- TIPOS
+
+
+{-| Variante das regras do Sudoku.
+
+Um _custom type_ garante que só existam três variantes válidas em todo o
+programa; o compilador exige tratamento exaustivo em todo `case`.
+
+-}
+type Variant
+    = Classic
+    | Diagonal
+    | AntiKnight
 
 
 {-| Uma casa do tabuleiro.
@@ -237,28 +252,56 @@ sameBox ( r1, c1 ) ( r2, c2 ) =
     r1 // 3 == r2 // 3 && c1 // 3 == c2 // 3
 
 
-{-| Duas posições diferentes "se enxergam" se estão na mesma linha, coluna
-ou bloco. Nessas condições não podem ter o mesmo número.
+isDiagonalCell : Position -> Bool
+isDiagonalCell ( row, col ) =
+    row == col || row + col == 8
+
+
+sameKnightMove : Position -> Position -> Bool
+sameKnightMove ( r1, c1 ) ( r2, c2 ) =
+    let
+        dr =
+            abs (r1 - r2)
+
+        dc =
+            abs (c1 - c2)
+    in
+    (dr == 1 && dc == 2) || (dr == 2 && dc == 1)
+
+
+{-| Duas posições diferentes "se enxergam" se estão na mesma linha, coluna,
+bloco ou restrição extra da variante (diagonais no X-Sudoku ou salto de
+cavalo no Anti-Cavalo). Nessas condições não podem ter o mesmo número.
 -}
-peers : Position -> Position -> Bool
-peers (( r1, c1 ) as p1) (( r2, c2 ) as p2) =
-    -- `( r1, c1 ) as p1` desestrutura a tupla E dá nome à tupla inteira.
-    p1 /= p2 && (r1 == r2 || c1 == c2 || sameBox p1 p2)
+peers : Variant -> Position -> Position -> Bool
+peers variant (( r1, c1 ) as p1) (( r2, c2 ) as p2) =
+    let
+        classicPeer =
+            r1 == r2 || c1 == c2 || sameBox p1 p2
+
+        variantPeer =
+            case variant of
+                Classic ->
+                    False
+
+                Diagonal ->
+                    (r1 == c1 && r2 == c2) || (r1 + c1 == 8 && r2 + c2 == 8)
+
+                AntiKnight ->
+                    sameKnightMove p1 p2
+    in
+    p1 /= p2 && (classicPeer || variantPeer)
 
 
-{-| Posições que violam as regras: casas com o mesmo número de outra casa na
-mesma linha, coluna ou bloco.
+{-| Posições que violam as regras da variante ativa.
 
 Esta checagem é feita no Elm (e não no Prolog) porque precisa ser instantânea
 a cada tecla. É uma verificação simples, O(81 × 81), que não precisa de busca.
 
 -}
-conflicts : Board -> Set Position
-conflicts board =
+conflicts : Variant -> Board -> Set Position
+conflicts variant board =
     let
-        -- `let ... in` define nomes locais. Aqui: lista de (posição, número)
-        -- apenas das casas preenchidas. `List.filterMap` aplica a função e
-        -- descarta os resultados `Nothing`.
         filled : List ( Position, Int )
         filled =
             positions
@@ -270,7 +313,7 @@ conflicts board =
                     )
 
         inConflict ( pos, n ) =
-            List.any (\( other, m ) -> n == m && peers pos other) filled
+            List.any (\( other, m ) -> n == m && peers variant pos other) filled
     in
     filled
         |> List.filter inConflict
@@ -280,10 +323,10 @@ conflicts board =
 
 {-| O jogo termina quando todas as casas têm número e não há conflitos.
 -}
-isComplete : Board -> Bool
-isComplete board =
+isComplete : Variant -> Board -> Bool
+isComplete variant board =
     List.all (\cell -> valueOf cell /= Nothing) (Array.toList board)
-        && Set.isEmpty (conflicts board)
+        && Set.isEmpty (conflicts variant board)
 
 
 
@@ -339,13 +382,13 @@ A posição de cada casa é recuperada a partir do índice no Array:
 linha = índice // 9, coluna = resto da divisão por 9.
 
 -}
-removeMarkFromPeers : Position -> Int -> Board -> Board
-removeMarkFromPeers position n board =
+removeMarkFromPeers : Variant -> Position -> Int -> Board -> Board
+removeMarkFromPeers variant position n board =
     Array.indexedMap
         (\index cell ->
             case cell of
                 Marks marks ->
-                    if peers position ( index // 9, modBy 9 index ) then
+                    if peers variant position ( index // 9, modBy 9 index ) then
                         fromMarks (Set.remove n marks)
 
                     else
