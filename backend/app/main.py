@@ -25,12 +25,17 @@ Row = Annotated[list[Cell], Field(min_length=9, max_length=9)]
 Grid = Annotated[list[Row], Field(min_length=9, max_length=9)]
 
 
+Variant = Literal["classic", "diagonal", "anti_knight"]
+
+
 class GenerateRequest(BaseModel):
     difficulty: Literal["easy", "medium", "hard"] = "medium"
+    variant: Variant = "classic"
 
 
 class BoardRequest(BaseModel):
     board: Grid
+    variant: Variant = "classic"
 
 
 class BoardResponse(BaseModel):
@@ -50,13 +55,13 @@ BOARD_COMPLETE = "O tabuleiro já está completo."
 
 @app.post("/api/generate")
 def generate(request: GenerateRequest) -> BoardResponse:
-    return BoardResponse(board=prolog.generate(request.difficulty))
+    return BoardResponse(board=prolog.generate(request.difficulty, request.variant))
 
 
 @app.post("/api/solve")
 def solve(request: BoardRequest) -> BoardResponse:
     try:
-        return BoardResponse(board=prolog.solve(request.board))
+        return BoardResponse(board=prolog.solve(request.board, request.variant))
     except prolog.NoSolution:
         # `from None` diz que a HTTPException SUBSTITUI a exceção original,
         # em vez de ser "causada" por ela; o traceback fica mais limpo.
@@ -66,7 +71,7 @@ def solve(request: BoardRequest) -> BoardResponse:
 @app.post("/api/hint")
 def hint(request: BoardRequest) -> HintResponse:
     try:
-        row, col, value = prolog.hint(request.board)
+        row, col, value = prolog.hint(request.board, request.variant)
     except prolog.NoSolution:
         raise HTTPException(status_code=422, detail=NO_SOLUTION) from None
     except prolog.BoardComplete:
