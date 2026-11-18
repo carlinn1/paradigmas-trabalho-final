@@ -43,9 +43,13 @@
 % sua aridade (número de argumentos): solve/2 recebe 2 argumentos.
 :- module(sudoku,
           [ solve/2,             % +Puzzle, -Solution
+            solve/3,             % +Variant, +Puzzle, -Solution
             count_solutions/3,   % +Puzzle, +Limit, -Count
+            count_solutions/4,   % +Variant, +Puzzle, +Limit, -Count
             generate/2,          % +Difficulty, -Puzzle
+            generate/3,          % +Variant, +Difficulty, -Puzzle
             hint/2,              % +Board, -Result
+            hint/3,              % +Variant, +Board, -Result
             example_puzzle/1,    % -Puzzle
             print_grid/1         % +Grid
           ]).
@@ -66,47 +70,78 @@
    1. AS REGRAS DO SUDOKU (restrições)
    ========================================================================= */
 
-%!  sudoku_constraints(?Rows) is det.
+%!  sudoku_constraints(+Variant, ?Rows) is det.
 %
-%   Impõe sobre Rows todas as regras do Sudoku. Rows pode conter tanto
-%   números já conhecidos quanto VARIÁVEIS ainda livres (as casas vazias).
-%
-%   Importante: este predicado NÃO resolve o puzzle. Ele apenas registra as
-%   restrições. O CLP(FD) já faz "propagação" nesse momento (por exemplo,
-%   se uma linha já tem 1..8, a variável restante só pode ser 9), mas para
-%   garantir que todas as casas recebam valores é preciso chamar label/1
-%   ou labeling/2 depois.
+%   Impõe sobre Rows as regras do Sudoku para a variante escolhida:
+%   - classic: linhas, colunas e blocos 3x3;
+%   - diagonal: além das regras clássicas, as duas diagonais principais;
+%   - anti_knight: além das regras clássicas, casas a um salto de cavalo
+%     não podem repetir números.
 sudoku_constraints(Rows) :-
-    % length/2 com uma variável livre cria uma lista com 9 elementos, ou
-    % verifica que Rows já tem 9 elementos. Predicados Prolog frequentemente
-    % funcionam "nos dois sentidos" assim.
+    sudoku_constraints(classic, Rows).
+
+sudoku_constraints(Variant, Rows) :-
+    must_be(oneof([classic, diagonal, anti_knight]), Variant),
     length(Rows, 9),
-
-    % same_length(Rows) aplicado a cada linha: toda linha tem 9 elementos.
-    % maplist(P, L) chama P em cada elemento de L (como um "for each").
     maplist(same_length(Rows), Rows),
-
-    % append/2 "achata" a lista de listas em uma única lista de 81 casas.
     append(Rows, Cells),
-
-    % `ins` é o operador do CLP(FD) que define o domínio: toda casa está
-    % no intervalo 1..9.
     Cells ins 1..9,
-
-    % Linhas: todos os valores distintos.
     maplist(all_distinct, Rows),
-
-    % Colunas: transpose/2 (da clpfd) transforma colunas em linhas, então
-    % reaproveitamos a mesma restrição.
     transpose(Rows, Columns),
     maplist(all_distinct, Columns),
-
-    % Blocos 3x3: pegamos as linhas de 3 em 3 e extraímos os blocos.
-    % O casamento de padrões (pattern matching) nomeia as 9 linhas.
     Rows = [R1, R2, R3, R4, R5, R6, R7, R8, R9],
     blocks(R1, R2, R3),
     blocks(R4, R5, R6),
-    blocks(R7, R8, R9).
+    blocks(R7, R8, R9),
+    variant_constraints(Variant, Rows).
+
+variant_constraints(classic, _Rows).
+variant_constraints(diagonal, Rows) :-
+    main_diagonal(Rows, 0, MainDiag),
+    anti_diagonal(Rows, 8, AntiDiag),
+    all_distinct(MainDiag),
+    all_distinct(AntiDiag).
+variant_constraints(anti_knight, Rows) :-
+    knight_constraints(Rows, Rows, 0).
+
+main_diagonal([], _, []).
+main_diagonal([Row | Rows], I, [Cell | Cells]) :-
+    nth0(I, Row, Cell),
+    I1 is I + 1,
+    main_diagonal(Rows, I1, Cells).
+
+anti_diagonal([], _, []).
+anti_diagonal([Row | Rows], I, [Cell | Cells]) :-
+    nth0(I, Row, Cell),
+    I1 is I - 1,
+    anti_diagonal(Rows, I1, Cells).
+
+knight_constraints([], _, _).
+knight_constraints([Row | Rows], AllRows, R) :-
+    knight_row_constraints(Row, AllRows, R, 0),
+    R1 is R + 1,
+    knight_constraints(Rows, AllRows, R1).
+
+knight_row_constraints([], _, _, _).
+knight_row_constraints([Cell | Cells], AllRows, R, C) :-
+    knight_offsets(Offsets),
+    apply_knight_offsets(Offsets, Cell, AllRows, R, C),
+    C1 is C + 1,
+    knight_row_constraints(Cells, AllRows, R, C1).
+
+knight_offsets([1-2, 1-(-2), 2-1, 2-(-1)]).
+
+apply_knight_offsets([], _, _, _, _).
+apply_knight_offsets([DR-DC | Rest], Cell, AllRows, R, C) :-
+    R2 is R + DR,
+    C2 is C + DC,
+    (   R2 >= 0, R2 < 9, C2 >= 0, C2 < 9
+    ->  nth0(R2, AllRows, TargetRow),
+        nth0(C2, TargetRow, TargetCell),
+        Cell #\= TargetCell
+    ;   true
+    ),
+    apply_knight_offsets(Rest, Cell, AllRows, R, C).
 
 %!  blocks(?RowA, ?RowB, ?RowC) is det.
 %
@@ -152,44 +187,39 @@ cell_var(N, N).
    ========================================================================= */
 
 %!  solve(+Puzzle, -Solution) is semidet.
+%!  solve(+Variant, +Puzzle, -Solution) is semidet.
 %
-%   Solution é uma solução de Puzzle. Falha se o puzzle não tiver solução.
-%   "semidet" significa: ou tem sucesso uma única vez, ou falha.
+%   Solution é uma solução de Puzzle na variante especificada. Falha se o
+%   puzzle não tiver solução.
 solve(Puzzle, Solution) :-
+    solve(classic, Puzzle, Solution).
+
+solve(Variant, Puzzle, Solution) :-
     grid_vars(Puzzle, Solution),
-    sudoku_constraints(Solution),
+    sudoku_constraints(Variant, Solution),
     append(Solution, Cells),
-
-    % labeling/2 atribui valores concretos às variáveis, fazendo busca com
-    % backtracking. A opção `ff` ("first fail") escolhe primeiro a variável
-    % com o MENOR domínio restante, heurística clássica que torna a busca
-    % muito mais rápida.
     labeling([ff], Cells),
-
-    % Queremos apenas a primeira solução: o corte descarta as demais.
     !.
 
 %!  count_solutions(+Puzzle, +Limit, -Count) is det.
+%!  count_solutions(+Variant, +Puzzle, +Limit, -Count) is det.
 %
-%   Count é o número de soluções de Puzzle, contando no máximo até Limit.
-%   Usado para verificar se um puzzle tem solução ÚNICA (Count == 1 com
-%   Limit = 2): não precisamos saber se são 2 ou 2 milhões, basta saber que
-%   há mais de uma.
+%   Count é o número de soluções de Puzzle na variante, contando no máximo
+%   até Limit.
 count_solutions(Puzzle, Limit, Count) :-
+    count_solutions(classic, Puzzle, Limit, Count).
+
+count_solutions(Variant, Puzzle, Limit, Count) :-
     grid_vars(Puzzle, Rows),
     append(Rows, Cells),
-
-    % findall/3 coleta TODAS as respostas de um objetivo numa lista.
-    % limit/2 interrompe a enumeração depois de Limit respostas.
-    % O objetivo entre parênteses é uma conjunção (vírgula = "e").
     findall(x,
-            limit(Limit, ( sudoku_constraints(Rows),
+            limit(Limit, ( sudoku_constraints(Variant, Rows),
                            labeling([ff], Cells) )),
             Found),
     length(Found, Count).
 
-unique_solution(Puzzle) :-
-    count_solutions(Puzzle, 2, 1).
+unique_solution(Variant, Puzzle) :-
+    count_solutions(Variant, Puzzle, 2, 1).
 
 
 /* =========================================================================
@@ -220,28 +250,26 @@ difficulty_clues(medium, 32).
 difficulty_clues(hard,   26).
 
 %!  generate(+Difficulty, -Puzzle) is det.
+%!  generate(+Variant, +Difficulty, -Puzzle) is det.
 generate(Difficulty, Puzzle) :-
-    % must_be/2 lança um erro legível se o argumento não for do tipo
-    % esperado. oneof([...]) aceita só um dos átomos listados.
+    generate(classic, Difficulty, Puzzle).
+
+generate(Variant, Difficulty, Puzzle) :-
+    must_be(oneof([classic, diagonal, anti_knight]), Variant),
     must_be(oneof([easy, medium, hard]), Difficulty),
     difficulty_clues(Difficulty, Target),
-    random_full_grid(Full),
-
-    % numlist(0, 80, L) cria [0, 1, ..., 80]: os índices de todas as casas.
+    random_full_grid(Variant, Full),
     numlist(0, 80, Indexes),
     random_permutation(Indexes, Order),
     append(Full, FlatFull),
-    dig_holes(Order, Target, FlatFull, FlatPuzzle),
+    dig_holes(Order, Variant, Target, FlatFull, FlatPuzzle),
     rows_of_9(FlatPuzzle, Puzzle),
-
-    % O corte final torna generate/2 determinístico: não queremos que um
-    % backtracking posterior tente "gerar de novo" por caminhos alternativos.
     !.
 
-%!  random_full_grid(-Grid) is det.
-random_full_grid(Rows) :-
-    length(Rows, 9),              % 9 linhas, cada uma ainda desconhecida
-    sudoku_constraints(Rows),     % (aqui as linhas ganham 9 variáveis cada)
+%!  random_full_grid(+Variant, -Grid) is det.
+random_full_grid(Variant, Rows) :-
+    length(Rows, 9),
+    sudoku_constraints(Variant, Rows),
     append(Rows, Cells),
     random_labeling(Cells),
     !.
@@ -268,25 +296,19 @@ random_labeling([Var | Vars]) :-
     ),
     random_labeling(Vars).
 
-%!  dig_holes(+Order, +Target, +Flat0, -Flat) is det.
-%
-%   Percorre os índices em Order tentando zerar cada casa. `Flat0` e `Flat`
-%   são o tabuleiro "achatado" (81 elementos) antes e depois.
-%
-%   Repare que não há atribuição destrutiva: cada passo cria uma NOVA lista.
-%   Em Prolog (e em Elm!) os dados são imutáveis.
-dig_holes([], _Target, Flat, Flat).
-dig_holes([Index | Rest], Target, Flat0, Flat) :-
+%!  dig_holes(+Order, +Variant, +Target, +Flat0, -Flat) is det.
+dig_holes([], _Variant, _Target, Flat, Flat).
+dig_holes([Index | Rest], Variant, Target, Flat0, Flat) :-
     clue_count(Flat0, Clues),
     (   Clues =< Target
-    ->  Flat = Flat0                      % já chegamos ao alvo: pare
+    ->  Flat = Flat0
     ;   replace_nth0(Index, Flat0, 0, Candidate),
         rows_of_9(Candidate, CandidateRows),
-        (   unique_solution(CandidateRows)
-        ->  Next = Candidate              % remoção aceita
-        ;   Next = Flat0                  % remoção recusada
+        (   unique_solution(Variant, CandidateRows)
+        ->  Next = Candidate
+        ;   Next = Flat0
         ),
-        dig_holes(Rest, Target, Next, Flat)
+        dig_holes(Rest, Variant, Target, Next, Flat)
     ).
 
 %   clue_count(+Flat, -N): quantas casas diferentes de 0.
@@ -317,31 +339,40 @@ rows_of_9(Flat, [Row | Rows]) :-
    ========================================================================= */
 
 %!  hint(+Board, -Result) is det.
+%!  hint(+Variant, +Board, -Result) is det.
 %
-%   Board é o tabuleiro atual do jogador (pistas + o que ele já preencheu).
-%   Result diz o que aconteceu:
-%
-%       [Row, Col, Value]   uma casa vazia, escolhida ao acaso, e o número
-%                           que vai nela segundo a solução;
-%       complete            não há casa vazia: o tabuleiro já está resolvido;
-%       unsolvable          o tabuleiro não tem solução (o jogador errou algo).
-%
-%   Toda a decisão fica aqui, em Prolog. O Python só traduz cada resultado
-%   numa resposta HTTP. Devolvemos uma lista, e não um termo como
-%   hint(Row, Col, Value), porque o janus converte listas e átomos para o
-%   Python, mas não termos compostos.
+%   Escolhe a casa vazia mais restrita (menor domínio restante no CLP(FD),
+%   heurística MRV / first-fail) e retorna [Row, Col, Value] com base na
+%   solução da variante escolhida.
 hint(Board, Result) :-
-    (   solve(Board, Solution)
+    hint(classic, Board, Result).
+
+hint(Variant, Board, Result) :-
+    (   solve(Variant, Board, Solution)
     ->  empty_positions(Board, Empty),
         (   Empty == []
         ->  Result = complete
-        ;   random_member(Row-Col, Empty),
+        ;   best_hint_cell(Variant, Board, Empty, Row-Col),
             nth0(Row, Solution, SolutionRow),
             nth0(Col, SolutionRow, Value),
             Result = [Row, Col, Value]
         )
     ;   Result = unsolvable
     ).
+
+best_hint_cell(Variant, Board, Empty, BestPos) :-
+    grid_vars(Board, PropRows),
+    sudoku_constraints(Variant, PropRows),
+    findall(Size-(R-C),
+            ( member(R-C, Empty),
+              nth0(R, PropRows, Row),
+              nth0(C, Row, Var),
+              ( integer(Var) -> Size = 1 ; fd_size(Var, Size) )
+            ),
+            Scored),
+    keysort(Scored, [MinSize-_ | _]),
+    findall(Pos, member(MinSize-Pos, Scored), BestCells),
+    random_member(BestPos, BestCells).
 
 %   empty_positions(+Board, -Positions): todas as posições Row-Col com 0.
 %   findall/3 com um objetivo composto: nth0/3 enumera, por backtracking,
