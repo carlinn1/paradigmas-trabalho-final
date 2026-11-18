@@ -81,3 +81,25 @@ def test_hint_on_full_board_with_errors():
     response = client.post("/api/hint", json={"board": board})
     assert response.status_code == 422
     assert "não tem solução" in response.json()["detail"]
+
+
+def test_generate_and_solve_diagonal_variant():
+    gen = client.post("/api/generate", json={"difficulty": "easy", "variant": "diagonal"})
+    assert gen.status_code == 200
+    puzzle = gen.json()["board"]
+    sol = client.post("/api/solve", json={"board": puzzle, "variant": "diagonal"})
+    assert sol.status_code == 200
+    solved = sol.json()["board"]
+    assert len({solved[i][i] for i in range(9)}) == 9
+    assert len({solved[i][8 - i] for i in range(9)}) == 9
+
+
+def test_generate_anti_knight_variant():
+    gen = client.post("/api/generate", json={"difficulty": "easy", "variant": "anti_knight"})
+    assert gen.status_code == 200
+    assert len(gen.json()["board"]) == 9
+
+
+def test_rejects_unknown_variant():
+    response = client.post("/api/generate", json={"difficulty": "easy", "variant": "killer"})
+    assert response.status_code == 422
