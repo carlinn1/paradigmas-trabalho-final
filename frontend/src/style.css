@@ -410,11 +410,18 @@
     @apply badge badge-soft badge-primary font-medium;
   }
 
+  .header-stats {
+    @apply ms-auto flex items-center gap-2;
+  }
+
+  .stat-pill {
+    @apply badge badge-soft font-mono text-xs tabular-nums;
+  }
+
   /* Botão sol/lua. `swap` (daisyUI) mostra `.swap-off` com o checkbox
-     desmarcado e `.swap-on` com ele marcado; `swap-rotate` gira na troca.
-     `ms-auto` (margin-inline-start: auto) empurra o botão para a direita. */
+     desmarcado e `.swap-on` com ele marcado; `swap-rotate` gira na troca. */
   .theme-toggle {
-    @apply swap swap-rotate btn btn-circle btn-ghost ms-auto self-center text-xl;
+    @apply swap swap-rotate btn btn-circle btn-ghost self-center text-xl;
   }
 
   .app-main {
@@ -465,6 +472,10 @@
 
   .difficulty-picker {
     @apply join w-full;
+  }
+
+  .variant-picker .difficulty-option {
+    @apply px-2 text-xs whitespace-nowrap;
   }
 
   .difficulty-option {
@@ -586,6 +597,9 @@
 
   /* Modificadores de destaque. A ORDEM importa: com a mesma especificidade,
      a regra que vem depois vence. Por isso "selecionada" vem por último. */
+  .cell--diagonal {
+    --cell-bg: color-mix(in oklch, var(--color-secondary) 9%, transparent);
+  }
   .cell--related    { --cell-bg: var(--cell-related); }
   .cell--same-value { --cell-bg: var(--cell-same-value); }
 
@@ -746,10 +760,11 @@
   /* ---------- Ações ---------- */
 
   .actions {
-    @apply grid grid-cols-3 gap-2;
+    @apply grid grid-cols-2 gap-2;
   }
 
   .action-button          { @apply btn; }
+  .action-button--undo    { @apply btn-outline; }
   .action-button--hint    { @apply btn-secondary; }
   .action-button--solve   { @apply btn-accent; }
   .action-button--reset   { @apply btn-ghost; }
