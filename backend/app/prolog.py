@@ -36,27 +36,34 @@ class BoardComplete(Exception):
     """O tabuleiro não tem casas vazias: não há dica para dar."""
 
 
-def solve(puzzle: Grid) -> Grid:
+def solve(puzzle: Grid, variant: str = "classic") -> Grid:
     # query_once executa a consulta e devolve um dict com as variáveis da
     # consulta (em maiúsculas, como no Prolog) e a chave 'truth', que diz se
     # a consulta teve sucesso.
-    result = janus.query_once("sudoku:solve(Puzzle, Solution)", {"Puzzle": puzzle})
+    result = janus.query_once(
+        "atom_string(V, Variant), sudoku:solve(V, Puzzle, Solution)",
+        {"Variant": variant, "Puzzle": puzzle},
+    )
     if not result["truth"]:
         raise NoSolution
     return result["Solution"]
 
 
-def generate(difficulty: str) -> Grid:
-    # Strings do Python viram strings do Prolog, mas generate/2 espera um
-    # ÁTOMO (easy, medium, hard). atom_string/2 faz a conversão do lado Prolog.
+def generate(difficulty: str, variant: str = "classic") -> Grid:
+    # Strings do Python viram strings do Prolog, mas generate/3 espera ÁTOMOS.
+    # atom_string/2 faz a conversão do lado Prolog.
     result = janus.query_once(
-        "atom_string(D, Name), sudoku:generate(D, Puzzle)", {"Name": difficulty}
+        "atom_string(V, Variant), atom_string(D, Name), sudoku:generate(V, D, Puzzle)",
+        {"Variant": variant, "Name": difficulty},
     )
     return result["Puzzle"]
 
 
-def hint(board: Grid) -> tuple[int, int, int]:
-    result = janus.query_once("sudoku:hint(Board, Result)", {"Board": board})["Result"]
+def hint(board: Grid, variant: str = "classic") -> tuple[int, int, int]:
+    result = janus.query_once(
+        "atom_string(V, Variant), sudoku:hint(V, Board, Result)",
+        {"Variant": variant, "Board": board},
+    )["Result"]
     # hint/2 sempre tem sucesso e devolve, em Result, uma lista [Linha,
     # Coluna, Valor] ou um dos átomos `complete` e `unsolvable` (átomos
     # chegam ao Python como strings). Quem decidiu o que aconteceu foi o
