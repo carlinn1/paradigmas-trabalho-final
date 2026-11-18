@@ -5,6 +5,7 @@ module Api exposing
     , generate
     , hint
     , solve
+    , variantLabel
     )
 
 {-| Comunicação com o backend (FastAPI + Prolog).
@@ -23,7 +24,7 @@ requisições para o backend em <http://localhost:8000> (veja vite.config.js).
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
-import Sudoku exposing (Board)
+import Sudoku exposing (Board, Variant(..))
 
 
 type Difficulty
@@ -60,6 +61,32 @@ difficultyToString difficulty =
             "hard"
 
 
+variantLabel : Variant -> String
+variantLabel variant =
+    case variant of
+        Classic ->
+            "Clássico"
+
+        Diagonal ->
+            "Diagonal (X)"
+
+        AntiKnight ->
+            "Anti-Cavalo"
+
+
+variantToString : Variant -> String
+variantToString variant =
+    case variant of
+        Classic ->
+            "classic"
+
+        Diagonal ->
+            "diagonal"
+
+        AntiKnight ->
+            "anti_knight"
+
+
 {-| Um _record_ (registro): um conjunto de campos com nome. O `type alias`
 também cria automaticamente uma função construtora `Hint : Int -> Int -> Int
 -> Hint`, que usamos no decoder abaixo.
@@ -78,31 +105,35 @@ type alias Hint =
 -- mensagem. `Result String a` é: ou `Ok valor`, ou `Err mensagemDeErro`.
 
 
-generate : Difficulty -> (Result String Board -> msg) -> Cmd msg
-generate difficulty toMsg =
+generate : Variant -> Difficulty -> (Result String Board -> msg) -> Cmd msg
+generate variant difficulty toMsg =
     Http.post
         { url = "/api/generate"
         , body =
             Http.jsonBody
-                (Encode.object [ ( "difficulty", Encode.string (difficultyToString difficulty) ) ])
+                (Encode.object
+                    [ ( "variant", Encode.string (variantToString variant) )
+                    , ( "difficulty", Encode.string (difficultyToString difficulty) )
+                    ]
+                )
         , expect = expectJson toMsg boardDecoder
         }
 
 
-solve : Board -> (Result String Board -> msg) -> Cmd msg
-solve board toMsg =
+solve : Variant -> Board -> (Result String Board -> msg) -> Cmd msg
+solve variant board toMsg =
     Http.post
         { url = "/api/solve"
-        , body = Http.jsonBody (encodeBoard board)
+        , body = Http.jsonBody (encodeBoardRequest variant board)
         , expect = expectJson toMsg boardDecoder
         }
 
 
-hint : Board -> (Result String Hint -> msg) -> Cmd msg
-hint board toMsg =
+hint : Variant -> Board -> (Result String Hint -> msg) -> Cmd msg
+hint variant board toMsg =
     Http.post
         { url = "/api/hint"
-        , body = Http.jsonBody (encodeBoard board)
+        , body = Http.jsonBody (encodeBoardRequest variant board)
         , expect = expectJson toMsg hintDecoder
         }
 
@@ -115,12 +146,14 @@ hint board toMsg =
 -- falha com uma mensagem de erro, em vez de gerar um valor inválido.
 
 
-{-| Envia `{"board": [[5,3,0,...], ...]}`.
+{-| Envia `{"variant": "...", "board": [[5,3,0,...], ...]}`.
 -}
-encodeBoard : Board -> Encode.Value
-encodeBoard board =
+encodeBoardRequest : Variant -> Board -> Encode.Value
+encodeBoardRequest variant board =
     Encode.object
-        [ ( "board", Encode.list (Encode.list Encode.int) (Sudoku.toLists board) ) ]
+        [ ( "variant", Encode.string (variantToString variant) )
+        , ( "board", Encode.list (Encode.list Encode.int) (Sudoku.toLists board) )
+        ]
 
 
 {-| Lê `{"board": [[...], ...]}`. Decoders se combinam como peças de Lego:
